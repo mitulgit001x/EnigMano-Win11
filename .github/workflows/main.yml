@@ -1,0 +1,117 @@
+name: "⚡ EnigMano Win11 + 128 Cores Deployment"
+
+on:
+  workflow_dispatch:
+    inputs:
+      INSTANCE:
+        description: "Instance number to deploy (e.g., 1, 2, 3...)"
+        required: true
+        default: "1"
+  repository_dispatch:
+    types: [enigmano-relay]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: enigmano-fleet
+  cancel-in-progress: false
+
+jobs:
+  deploy-enigmano:
+    name: "🚀 Deploy EnigMano Instance ${{ github.event.inputs.INSTANCE || github.event.client_payload.instance || '1' }}"
+    runs-on: windows-11-arm
+    timeout-minutes: 350
+
+    env:
+      INSTANCE_ID: ${{ github.event.inputs.INSTANCE || github.event.client_payload.instance || '1' }}
+      SECRET_SHAHZAIB: ${{ secrets.SECRET_SHAHZAIB }}
+      NGROK_SHAHZAIB: ${{ secrets.NGROK_SHAHZAIB }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      DEPLOYMENT_ID: ${{ github.run_id }}
+
+    steps:
+      - name: 📌 Deployment Parameters
+        shell: pwsh
+        run: |
+          $prevInstance = [int]$env:INSTANCE_ID - 1
+          Write-Host "==============================================="
+          Write-Host "🔹 EnigMano Instance     : $env:INSTANCE_ID"
+          Write-Host "🔢 Previous Instance     : $prevInstance"
+          Write-Host "📦 GitHub Repository     : $env:REPO"
+          Write-Host "🆔 Deployment ID         : $env:DEPLOYMENT_ID"
+          Write-Host "🖥️  Runner               : windows-11-arm (ARM64)"
+          Write-Host "==============================================="
+
+      - name: 🔐 Validate Secrets
+        shell: pwsh
+        run: |
+          $missing = @()
+          if ([string]::IsNullOrWhiteSpace($env:SECRET_SHAHZAIB)) { $missing += "SECRET_SHAHZAIB" }
+          if ([string]::IsNullOrWhiteSpace($env:NGROK_SHAHZAIB))  { $missing += "NGROK_SHAHZAIB" }
+          if ($missing.Count -gt 0) {
+            Write-Error "❌ Missing required secret(s): $($missing -join ', ')"
+            exit 1
+          }
+          Write-Host "✅ All required secrets validated successfully"
+
+      - name: 🧰 Verify Runner Environment
+        shell: pwsh
+        run: |
+          $cpu = (Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors
+          $ram = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 1)
+          Write-Host "🧠 Logical Cores : $cpu"
+          Write-Host "💾 RAM           : $ram GB"
+          Write-Host "🏗️  Architecture : $env:PROCESSOR_ARCHITECTURE"
+          if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+            Write-Warning "GitHub CLI not found — relay handoff will be skipped."
+          }
+
+      - name: 📥 Acquire EnigMano-Instance.ps1
+        shell: pwsh
+        run: |
+          # Primary: script ships inside this repository (stable, no external dependency)
+          if (Test-Path ".\EnigMano-Instance.ps1") {
+            Write-Host "✅ Using EnigMano-Instance.ps1 from repository"
+            return
+          }
+          # Fallback: legacy external source
+          Write-Warning "Local script not found — trying legacy remote source..."
+          $url = "https://gitlab.com/Shahzaib-YT/enigmano-windows-11-with-sound/-/raw/main/EnigMano-Instance.ps1"
+          try {
+            Invoke-WebRequest -Uri $url -OutFile "EnigMano-Instance.ps1" -UseBasicParsing -TimeoutSec 60
+            Write-Host "✅ Downloaded from remote source"
+          } catch {
+            Write-Error "❌ Could not acquire EnigMano-Instance.ps1 from any source: $_"
+            exit 1
+          }
+
+      - name: ⚔️ Execute EnigMano Instance Script
+        shell: pwsh
+        run: |
+          Write-Host "🚦 Initiating EnigMano-Instance.ps1 — Instance $env:INSTANCE_ID"
+          pwsh -NoProfile -ExecutionPolicy Bypass -File ".\EnigMano-Instance.ps1"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "❌ EnigMano script exited with code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+
+      - name: 📤 Upload Deployment Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enigmano-instance-${{ env.INSTANCE_ID }}-logs
+          path: C:\EnigMano\Logs
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: 💠 Final Status
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "==============================================="
+          Write-Host "✅ EnigMano Instance $env:INSTANCE_ID finished execution."
+          Write-Host "🔋 Powered by: SHAHZAIB-YT"
+          Write-Host "🏁 EnigMano deployment executed with tactical precision."
+          Write-Host "==============================================="
