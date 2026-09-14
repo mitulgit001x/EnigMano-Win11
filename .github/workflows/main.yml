@@ -25,8 +25,9 @@ jobs:
 
     env:
       INSTANCE_ID: ${{ github.event.inputs.INSTANCE || github.event.client_payload.instance || '1' }}
-      SECRET_SHAHZAIB: ${{ secrets.SECRET_SHAHZAIB }}
       NGROK_SHAHZAIB: ${{ secrets.NGROK_SHAHZAIB }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       REPO: ${{ github.repository }}
       DEPLOYMENT_ID: ${{ github.run_id }}
@@ -50,14 +51,16 @@ jobs:
       - name: 🔐 Validate Secrets
         shell: pwsh
         run: |
-          $missing = @()
-          if ([string]::IsNullOrWhiteSpace($env:SECRET_SHAHZAIB)) { $missing += "SECRET_SHAHZAIB" }
-          if ([string]::IsNullOrWhiteSpace($env:NGROK_SHAHZAIB))  { $missing += "NGROK_SHAHZAIB" }
-          if ($missing.Count -gt 0) {
-            Write-Error "❌ Missing required secret(s): $($missing -join ', ')"
+          if ([string]::IsNullOrWhiteSpace($env:NGROK_SHAHZAIB)) {
+            Write-Error "❌ Missing required secret: NGROK_SHAHZAIB"
             exit 1
           }
-          Write-Host "✅ All required secrets validated successfully"
+          if ([string]::IsNullOrWhiteSpace($env:TELEGRAM_BOT_TOKEN) -or [string]::IsNullOrWhiteSpace($env:TELEGRAM_CHAT_ID)) {
+            Write-Warning "⚠️ Telegram secrets not set — notifications will be skipped (optional)"
+          } else {
+            Write-Host "✅ Telegram notifications configured"
+          }
+          Write-Host "✅ Required secrets validated successfully"
 
       - name: 🧰 Verify Runner Environment
         shell: pwsh
