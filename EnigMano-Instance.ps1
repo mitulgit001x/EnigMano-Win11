@@ -2,26 +2,30 @@
 .SYNOPSIS
     EnigMano - Windows 11 RDP Fortress (GitHub-hosted windows-11-arm runner)
 .DESCRIPTION
-    Self-contained deployment: RDP + ngrok tunnel, clean browsers (NO auto
-    extensions), performance optimization, personalization, data vault,
-    340-minute mission timeline with relay handoff and graceful shutdown.
+    Self-contained deployment: RDP + ngrok tunnel, Telegram login alerts,
+    clean browsers (NO auto extensions), performance optimization,
+    personalization, 340-minute mission timeline with relay handoff.
 .NOTES
     Powered by SHAHZAIB-YT | MIT License (c) 2025
 #>
 
 # ============================ CONFIG ============================
-$ErrorActionPreference = "Continue"   # resilient: log failures, keep mission alive
+$ErrorActionPreference = "Continue"
 Set-StrictMode -Version Latest
 
-$RdpUser        = "EnigMano"
-$RdpPassword    = $env:SECRET_SHAHZAIB
+# ---- Credentials (hardcoded per spec) ----
+$RdpUser        = "FabricAdmin"
+$RdpPassword    = "A123456!"
+
 $NgrokToken     = $env:NGROK_SHAHZAIB
+$TgToken        = $env:TELEGRAM_BOT_TOKEN
+$TgChatId       = $env:TELEGRAM_CHAT_ID
 $InstanceId     = if ($env:INSTANCE_ID) { $env:INSTANCE_ID } else { "1" }
 $Repo           = $env:REPO
 
-$ActiveMinutes  = 330   # Active Sentinel window
-$RelayAtMinute  = 330   # deploy next instance
-$TotalMinutes   = 335   # shutdown at 335 (runner hard cap ~350)
+$ActiveMinutes  = 330
+$RelayAtMinute  = 330
+$TotalMinutes   = 335
 
 $WorkDir        = "C:\EnigMano"
 $VaultDir       = "$env:USERPROFILE\Desktop\DataVault"
@@ -52,6 +56,25 @@ function Invoke-Phase([string]$Name, [scriptblock]$Body) {
     } catch {
         $script:FailedPhases += $Name
         Write-Log "Phase '$Name' failed: $($_.Exception.Message)" "ERROR"
+    }
+}
+
+# ============================ TELEGRAM ==========================
+function Send-Telegram([string]$Text) {
+    if ([string]::IsNullOrWhiteSpace($TgToken) -or [string]::IsNullOrWhiteSpace($TgChatId)) {
+        Write-Log "Telegram not configured - notification skipped" "WARN"
+        return
+    }
+    $uri = "https://api.telegram.org/bot$TgToken/sendMessage"
+    try {
+        Invoke-RestMethod -Uri $uri -Method Post -TimeoutSec 30 -Body @{
+            chat_id    = $TgChatId
+            text       = $Text
+            parse_mode = "HTML"
+        } | Out-Null
+        Write-Log "Telegram notification sent" "OK"
+    } catch {
+        Write-Log "Telegram send failed: $($_.Exception.Message)" "WARN"
     }
 }
 
@@ -194,29 +217,39 @@ Invoke-Phase "Ngrok-Tunnel" {
     Write-Log "RDP endpoint: $endpoint" "OK"
 }
 
+# ====================== TELEGRAM: LOGIN ALERT ===================
+$epText = if ($script:RdpEndpoint) { $script:RdpEndpoint } else { "tunnel failed - check logs" }
+Send-Telegram @"
+⚡ <b>EnigMano Instance $InstanceId — ONLINE</b>
+
+🌐 RDP: <code>$epText</code>
+👤 User: <code>$RdpUser</code>
+🔑 Pass: <code>$RdpPassword</code>
+⏱️ Active: $ActiveMinutes min
+🖥️ Runner: windows-11-arm
+🆔 Run: $env:DEPLOYMENT_ID
+"@
+
 # ========================== CONNECTION CARD =====================
 Write-Host ""
 Write-Host "+------------------------------------------------------+"
 Write-Host "|        ENIGMANO FORTRESS IS ONLINE                   |"
 Write-Host "+------------------------------------------------------+"
-if ($script:RdpEndpoint) {
-    Write-Host ("|  RDP Address : {0,-38}|" -f $script:RdpEndpoint)
-}
+Write-Host ("|  RDP Address : {0,-38}|" -f $epText)
 Write-Host ("|  Username    : {0,-38}|" -f $RdpUser)
-Write-Host  "|  Password    : (your SECRET_SHAHZAIB secret)         |"
+Write-Host ("|  Password    : {0,-38}|" -f $RdpPassword)
 Write-Host  "|  Active for  : 330 minutes                           |"
 Write-Host  "+------------------------------------------------------+"
 
 try {
-    $ep = if ($script:RdpEndpoint) { $script:RdpEndpoint } else { "_tunnel failed - check logs_" }
     @"
 ## ⚡ EnigMano Instance $InstanceId - ONLINE
 
 | Key | Value |
 |---|---|
-| 🌐 RDP Endpoint | ``$ep`` |
+| 🌐 RDP Endpoint | ``$epText`` |
 | 👤 Username | ``$RdpUser`` |
-| 🔑 Password | Stored in ``SECRET_SHAHZAIB`` |
+| 🔑 Password | ``$RdpPassword`` |
 | ⏱️ Active Window | 330 min (shutdown at 335) |
 | 🧩 Extensions | None (auto-install removed) |
 "@ | Out-File $env:GITHUB_STEP_SUMMARY -Encoding utf8
@@ -258,6 +291,15 @@ Invoke-Phase "Cleanup" {
     }
     Write-Log "Cleanup complete - RDP firewall closed"
 }
+
+$nextId = [int]$InstanceId + 1
+Send-Telegram @"
+🏁 <b>EnigMano Instance $InstanceId — OFFLINE</b>
+
+✋ Relay dispatched: Instance $nextId queued
+⏱️ Session duration: $TotalMinutes min
+🔋 Powered by SHAHZAIB-YT
+"@
 
 if ($script:FailedPhases.Count -gt 0) {
     Write-Log "Completed with failed phases: $($script:FailedPhases -join ', ')" "WARN"
