@@ -11,7 +11,7 @@ on:
     types: [enigmano-relay]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: enigmano-fleet
@@ -32,6 +32,9 @@ jobs:
       DEPLOYMENT_ID: ${{ github.run_id }}
 
     steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
       - name: 📌 Deployment Parameters
         shell: pwsh
         run: |
@@ -64,28 +67,16 @@ jobs:
           Write-Host "🧠 Logical Cores : $cpu"
           Write-Host "💾 RAM           : $ram GB"
           Write-Host "🏗️  Architecture : $env:PROCESSOR_ARCHITECTURE"
-          if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
-            Write-Warning "GitHub CLI not found — relay handoff will be skipped."
-          }
 
       - name: 📥 Acquire EnigMano-Instance.ps1
         shell: pwsh
         run: |
-          # Primary: script ships inside this repository (stable, no external dependency)
           if (Test-Path ".\EnigMano-Instance.ps1") {
-            Write-Host "✅ Using EnigMano-Instance.ps1 from repository"
+            Write-Host "✅ Using EnigMano-Instance.ps1 from repository root"
             return
           }
-          # Fallback: legacy external source
-          Write-Warning "Local script not found — trying legacy remote source..."
-          $url = "https://gitlab.com/Shahzaib-YT/enigmano-windows-11-with-sound/-/raw/main/EnigMano-Instance.ps1"
-          try {
-            Invoke-WebRequest -Uri $url -OutFile "EnigMano-Instance.ps1" -UseBasicParsing -TimeoutSec 60
-            Write-Host "✅ Downloaded from remote source"
-          } catch {
-            Write-Error "❌ Could not acquire EnigMano-Instance.ps1 from any source: $_"
-            exit 1
-          }
+          Write-Error "❌ EnigMano-Instance.ps1 not found at repo root. Commit it next to README.md."
+          exit 1
 
       - name: ⚔️ Execute EnigMano Instance Script
         shell: pwsh
